@@ -1,0 +1,5 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "entry": ["examples/*/index.ts"],
+  "ignoreDependencies": ["biome-plugin-no-type-assertion"]
+}

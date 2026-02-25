@@ -1,12 +1,33 @@
 {
-  "name": "ts-starter",
-  "module": "index.ts",
+  "name": "clack-machine",
+  "version": "1.0.0",
+  "description": "State machine CLI form builder powered by @clack/prompts",
+  "module": "src/index.ts",
   "type": "module",
-  "private": true,
-  "devDependencies": {
-    "@types/bun": "latest"
+  "exports": {
+    ".": "./src/index.ts"
   },
-  "peerDependencies": {
-    "typescript": "^5"
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "example:ts-starter": "bun examples/ts-starter/index.ts",
+    "build:ts-starter": "bun build --compile examples/ts-starter/index.ts --outfile dist/create-ts",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "knip": "knip",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@clack/prompts": "latest",
+    "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "latest",
+    "@types/bun": "latest",
+    "biome-plugin-no-type-assertion": "latest",
+    "knip": "latest",
+    "@typescript/native-preview": "latest"
   }
 }
