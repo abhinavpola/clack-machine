@@ -5,9 +5,11 @@ import { parseConfigArg } from "./config-parser";
 import { runHeadless } from "./headless";
 import { runInteractive } from "./interactive";
 import { resolveNext } from "./machine";
+import type { Result } from "./result";
 import { generateSchema } from "./schema";
 import type {
   AnyStateDef,
+  CLIError,
   CLIOptions,
   Machine,
   MachineConfig,
@@ -20,6 +22,9 @@ function findPositionalState(
   states: Record<string, AnyStateDef>
 ): string | undefined {
   for (const [key, state] of Object.entries(states)) {
+    if (state.type === "task") {
+      continue;
+    }
     switch (state.type) {
       case "text":
         if (state.positional) {
@@ -51,6 +56,9 @@ function printHelp(
   lines.push("");
   lines.push("Options:");
   for (const [key, state] of Object.entries(states)) {
+    if (state.type === "task") {
+      continue;
+    }
     const flag = `--${camelToKebab(key)}`;
     let line = `  ${flag}`;
     switch (state.type) {
@@ -92,6 +100,9 @@ function logSkippedPrefill(
     if (!state) {
       break;
     }
+    if (state.type === "task") {
+      break;
+    }
     const val = prefill[currentId];
     if (val !== undefined) {
       p.log.info(`${camelToKebab(currentId)}: ${String(val)}`);
@@ -105,12 +116,15 @@ function logSkippedPrefill(
 export async function createCLI<
   S extends Record<string, AnyStateDef>,
   O extends MachineOutput<S>,
->(machine: Machine<S, O>, options?: CLIOptions<O>): Promise<O>;
+>(
+  machine: Machine<S, O>,
+  options?: CLIOptions<O>
+): Promise<Result<O, CLIError>>;
 
 export async function createCLI(
   machine: { config: MachineConfig },
   options?: CLIOptions<Record<string, string | boolean>>
-): Promise<Record<string, string | boolean>> {
+): Promise<Result<Record<string, string | boolean>, CLIError>> {
   const { config } = machine;
   const stateOptions = buildParseArgsOptions(config.states);
 
@@ -179,9 +193,14 @@ export async function createCLI(
   const outroFn = options?.outro;
 
   if (!isTTY || useYes) {
-    const result = runHeadless(config, rawValues, useYes);
+    const result = await runHeadless(config, rawValues, useYes);
+    if (!result.ok) {
+      return result;
+    }
     const outroText =
-      typeof outroFn === "function" ? outroFn(result) : (outroFn ?? "Done!");
+      typeof outroFn === "function"
+        ? outroFn(result.value)
+        : (outroFn ?? "Done!");
     console.log(outroText);
     return result;
   }
@@ -189,8 +208,13 @@ export async function createCLI(
   p.intro(intro);
   logSkippedPrefill(config, rawValues);
   const result = await runInteractive(config, rawValues);
+  if (!result.ok) {
+    return result;
+  }
   const outroText =
-    typeof outroFn === "function" ? outroFn(result) : (outroFn ?? "Done!");
+    typeof outroFn === "function"
+      ? outroFn(result.value)
+      : (outroFn ?? "Done!");
   p.outro(outroText);
   return result;
 }

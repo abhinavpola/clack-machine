@@ -1,10 +1,17 @@
 import { camelToKebab } from "./args";
-import { traverseMachine } from "./machine";
-import type { AnyStateDef, MachineConfig } from "./types";
+import { resolveNext } from "./machine";
+import { err, ok } from "./result";
+import type {
+  AnyStateDef,
+  CLIError,
+  MachineConfig,
+  PromptStateDef,
+  Result,
+} from "./types";
 
 function validateValue(
   id: string,
-  state: AnyStateDef,
+  state: PromptStateDef,
   value: string | boolean
 ): void {
   switch (state.type) {
@@ -37,42 +44,75 @@ function validateValue(
   }
 }
 
-export function runHeadless(
+export async function runHeadless(
   config: MachineConfig,
   rawValues: Record<string, string | boolean>,
   useYes: boolean
-): Record<string, string | boolean> {
-  const visited = traverseMachine(config, rawValues);
+): Promise<Result<Record<string, string | boolean>, CLIError>> {
   const output: Record<string, string | boolean> = {};
+  let currentId: string | null = config.initial;
 
-  for (const { id, state } of visited) {
-    const provided = rawValues[id];
-    if (provided !== undefined) {
-      validateValue(id, state, provided);
-      output[id] = provided;
-    } else {
-      if (state.defaultValue !== undefined) {
-        output[id] = state.defaultValue;
-        continue;
+  while (currentId !== null) {
+    const state: AnyStateDef | undefined = config.states[currentId];
+    if (!state) {
+      break;
+    }
+
+    if (state.type === "task") {
+      const taskResult = await state.run(output);
+      if (!taskResult.ok) {
+        return err({
+          kind: "task",
+          stateId: currentId,
+          cause: taskResult.error,
+        });
       }
+      currentId = state.next.ok;
+      continue;
+    }
 
+    // Prompt state
+    const provided = rawValues[currentId];
+    let value: string | boolean;
+
+    if (provided !== undefined) {
+      validateValue(currentId, state, provided);
+      value = provided;
+    } else if (state.defaultValue !== undefined) {
+      value = state.defaultValue;
+    } else {
       switch (state.type) {
         case "confirm":
-          output[id] = false;
+          value = false;
           break;
         case "text":
         case "select":
           if (useYes) {
-            throw new Error(`no default for --${camelToKebab(id)}`);
+            return err({
+              kind: "task",
+              stateId: currentId,
+              cause: new Error(`no default for --${camelToKebab(currentId)}`),
+            });
           }
-          throw new Error(`missing required flag --${camelToKebab(id)}`);
+          return err({
+            kind: "task",
+            stateId: currentId,
+            cause: new Error(
+              `missing required flag --${camelToKebab(currentId)}`
+            ),
+          });
         default: {
           const _exhaustive: never = state;
-          throw new Error("unsupported state type in runHeadless");
+          throw new Error(
+            `unsupported state type in runHeadless: ${String(_exhaustive)}`
+          );
         }
       }
     }
+
+    output[currentId] = value;
+    currentId = resolveNext(state, value);
   }
 
-  return output;
+  return ok(output);
 }

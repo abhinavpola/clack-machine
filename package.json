@@ -1,6 +1,6 @@
 {
   "name": "clack-machine",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "State machine CLI form builder powered by @clack/prompts",
   "type": "module",
   "exports": {

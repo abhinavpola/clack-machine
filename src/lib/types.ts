@@ -1,3 +1,7 @@
+import type { Result } from "./result";
+
+export type { CLIError, Result } from "./result";
+
 export interface TextStateDef<Keys extends string = string> {
   readonly type: "text";
   readonly message: string;
@@ -30,7 +34,16 @@ export interface ConfirmStateDef<Keys extends string = string> {
   readonly next: Keys | null | ((v: boolean) => Keys | null);
 }
 
-export type AnyStateDef<Keys extends string = string> =
+export interface TaskStateDef<E = unknown, Keys extends string = string> {
+  readonly type: "task";
+  readonly message: string;
+  readonly run: (
+    values: Record<string, string | boolean>
+  ) => Promise<Result<null, E>>;
+  readonly next: { ok: Keys | null; err: Keys | null };
+}
+
+export type PromptStateDef<Keys extends string = string> =
   | TextStateDef<Keys>
   | SelectStateDef<
       ReadonlyArray<{
@@ -42,7 +55,11 @@ export type AnyStateDef<Keys extends string = string> =
     >
   | ConfirmStateDef<Keys>;
 
-export type StateValue<S extends AnyStateDef> = S extends { type: "confirm" }
+export type AnyStateDef<Keys extends string = string> =
+  | PromptStateDef<Keys>
+  | TaskStateDef<unknown, Keys>;
+
+export type StateValue<S extends PromptStateDef> = S extends { type: "confirm" }
   ? boolean
   : S extends { type: "text" }
     ? string
@@ -54,12 +71,15 @@ export type StateValue<S extends AnyStateDef> = S extends { type: "confirm" }
       : never;
 
 export type MachineOutput<States extends Record<string, AnyStateDef>> = {
-  [K in keyof States]: StateValue<States[K]>;
+  [K in keyof States as States[K] extends { type: "task" }
+    ? never
+    : K]: States[K] extends PromptStateDef ? StateValue<States[K]> : never;
 };
 
 export interface Machine<
   S extends Record<string, AnyStateDef>,
-  O extends MachineOutput<S>,
+  // O is phantom — constrained at defineMachine/createCLI call sites, not here
+  O = Record<string, string | boolean>,
 > {
   readonly config: { initial: keyof S & string; states: S };
   readonly _output?: O; // phantom; never assigned at runtime

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { createCLI, defineMachine } from "../../src";
+import { createCLI, defineMachine, err, ok } from "../../src";
 import { scaffold } from "./scaffold";
 
 const machine = defineMachine({
@@ -34,15 +34,38 @@ const machine = defineMachine({
       type: "confirm",
       message: "Add NX with TypeScript project references?",
       defaultValue: false,
-      next: null,
+      next: "scaffold",
+    },
+    scaffold: {
+      type: "task",
+      message: "Scaffolding project",
+      run: async (values) => {
+        try {
+          await scaffold({
+            name: String(values.name),
+            typescript: values.typescript === "tsc" ? "tsc" : "tsgo",
+            nx: Boolean(values.nx),
+          });
+          return ok(null);
+        } catch (e) {
+          return err(e);
+        }
+      },
+      next: { ok: null, err: "name" },
     },
   },
 });
 
-const config = await createCLI(machine, {
+const result = await createCLI(machine, {
   intro: "create-ts — TypeScript project scaffolder",
   outro: (r) => `Done!  cd ${r.name} && bun install`,
   description: "Scaffold a new TypeScript project with Biome, Knip, and Bun",
 });
 
-await scaffold(config);
+if (!result.ok) {
+  if (result.error.kind === "cancel") {
+    process.exit(0);
+  }
+  console.error(result.error.cause);
+  process.exit(1);
+}

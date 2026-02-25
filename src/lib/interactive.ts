@@ -1,9 +1,16 @@
 import * as p from "@clack/prompts";
 import { resolveNext } from "./machine";
-import type { AnyStateDef, MachineConfig } from "./types";
+import { err, ok } from "./result";
+import type {
+  AnyStateDef,
+  CLIError,
+  MachineConfig,
+  PromptStateDef,
+  Result,
+} from "./types";
 
 async function promptForState(
-  state: AnyStateDef,
+  state: PromptStateDef,
   prefillValue: string | boolean | undefined
 ): Promise<string | boolean | symbol> {
   switch (state.type) {
@@ -43,16 +50,42 @@ async function promptForState(
 export async function runInteractive(
   config: MachineConfig,
   prefill: Record<string, string | boolean>
-): Promise<Record<string, string | boolean>> {
+): Promise<Result<Record<string, string | boolean>, CLIError>> {
   const values: Record<string, string | boolean> = {};
   let currentId: string | null = config.initial;
 
   while (currentId !== null) {
-    const state = config.states[currentId];
+    const state: AnyStateDef | undefined = config.states[currentId];
     if (!state) {
       break;
     }
 
+    if (state.type === "task") {
+      const s = p.spinner();
+      s.start(state.message);
+      const taskResult = await state.run(values);
+      if (taskResult.ok) {
+        s.stop(state.message);
+        currentId = state.next.ok;
+      } else {
+        const errMsg =
+          taskResult.error instanceof Error
+            ? taskResult.error.message
+            : String(taskResult.error);
+        s.stop(`${state.message} — ${errMsg}`);
+        if (state.next.err === null) {
+          return err({
+            kind: "task",
+            stateId: currentId,
+            cause: taskResult.error,
+          });
+        }
+        currentId = state.next.err;
+      }
+      continue;
+    }
+
+    // Prompt state
     const prefillValue = prefill[currentId];
     let value: string | boolean;
 
@@ -62,9 +95,9 @@ export async function runInteractive(
       const result = await promptForState(state, undefined);
       if (p.isCancel(result)) {
         p.cancel("Cancelled.");
-        process.exit(0);
+        return err({ kind: "cancel" });
       }
-      // TypeScript narrows result to string | boolean after isCancel guard + exit
+      // TypeScript narrows result to string | boolean after isCancel guard + return
       value = result;
     }
 
@@ -72,5 +105,5 @@ export async function runInteractive(
     currentId = resolveNext(state, value);
   }
 
-  return values;
+  return ok(values);
 }

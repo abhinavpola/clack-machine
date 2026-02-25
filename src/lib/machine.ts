@@ -3,22 +3,27 @@ import type {
   Machine,
   MachineConfig,
   MachineOutput,
+  PromptStateDef,
+  TaskStateDef,
 } from "./types";
 
 export function defineMachine<const S extends Record<string, AnyStateDef>>(
-  config: { initial: keyof S & string; states: S } & (
-    S extends Record<string, AnyStateDef<keyof S & string>>
-      ? unknown
-      : { states: { [K in keyof S]: AnyStateDef<keyof S & string> } }
-  )
+  config: { initial: keyof S & string; states: S } & (S extends Record<
+    string,
+    AnyStateDef<keyof S & string>
+  >
+    ? unknown
+    : { states: { [K in keyof S]: AnyStateDef<keyof S & string> } })
 ): Machine<S, MachineOutput<S>>;
 
-export function defineMachine(config: MachineConfig): Machine<Record<string, AnyStateDef>, Record<string, string | boolean>> {
+export function defineMachine(
+  config: MachineConfig
+): Machine<Record<string, AnyStateDef>> {
   return { config };
 }
 
 export function resolveNext(
-  state: AnyStateDef,
+  state: PromptStateDef,
   value: string | boolean
 ): string | null {
   switch (state.type) {
@@ -59,7 +64,14 @@ export function resolveNext(
   }
 }
 
-function syntheticZero(state: AnyStateDef): string | boolean {
+export function resolveTaskNext(
+  state: TaskStateDef,
+  outcome: "ok" | "err"
+): string | null {
+  return state.next[outcome];
+}
+
+function syntheticZero(state: PromptStateDef): string | boolean {
   switch (state.type) {
     case "confirm":
       return false;
@@ -77,14 +89,19 @@ function syntheticZero(state: AnyStateDef): string | boolean {
 export function traverseMachine(
   config: MachineConfig,
   values: Record<string, string | boolean>
-): Array<{ id: string; state: AnyStateDef }> {
-  const visited: Array<{ id: string; state: AnyStateDef }> = [];
+): Array<{ id: string; state: PromptStateDef }> {
+  const visited: Array<{ id: string; state: PromptStateDef }> = [];
   let currentId: string | null = config.initial;
 
   while (currentId !== null) {
-    const state = config.states[currentId];
+    const state: AnyStateDef | undefined = config.states[currentId];
     if (!state) {
       break;
+    }
+    if (state.type === "task") {
+      // Skip task states — follow ok path, don't add to visited
+      currentId = state.next.ok;
+      continue;
     }
     visited.push({ id: currentId, state });
     const effectiveValue =

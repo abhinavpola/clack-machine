@@ -22,6 +22,8 @@ export function buildParseArgsOptions(
   for (const [key, state] of Object.entries(states)) {
     const flagName = camelToKebab(key);
     switch (state.type) {
+      case "task":
+        break;
       case "confirm":
         options[flagName] = {
           type: "boolean",

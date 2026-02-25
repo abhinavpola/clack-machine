@@ -10,6 +10,9 @@ export function generateSchema(
   const flags: Record<string, string> = {};
 
   for (const [key, state] of Object.entries(states)) {
+    if (state.type === "task") {
+      continue;
+    }
     flags[key] = `--${camelToKebab(key)}`;
 
     switch (state.type) {
