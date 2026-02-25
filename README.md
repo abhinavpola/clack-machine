@@ -14,7 +14,7 @@ bun add clack-machine
 
 ```ts
 #!/usr/bin/env bun
-import { createCLI, defineMachine } from "clack-machine";
+import { createCLI, defineMachine, ok, err } from "clack-machine";
 
 const machine = defineMachine({
   initial: "name",
@@ -33,13 +33,20 @@ const machine = defineMachine({
         { value: "ts", label: "TypeScript" },
         { value: "js", label: "JavaScript" },
       ],
-      next: "install",
+      next: "scaffold",
     },
-    install: {
-      type: "confirm",
-      message: "Install dependencies?",
-      defaultValue: true,
-      next: null,
+    scaffold: {
+      type: "task",
+      message: "Scaffolding project",
+      run: async (values) => {
+        try {
+          await writeFiles(values);
+          return ok(null);
+        } catch (e) {
+          return err(e);
+        }
+      },
+      next: { ok: null, err: "name" }, // on failure, loop back to name
     },
   },
 });
@@ -49,15 +56,22 @@ const result = await createCLI(machine, {
   outro: (r) => `Done! cd ${r.name}`,
 });
 
-// result is fully typed: { name: string; language: "ts" | "js"; install: boolean }
-console.log(result);
+if (!result.ok) {
+  if (result.error.kind === "cancel") process.exit(0);
+  console.error(result.error.cause);
+  process.exit(1);
+}
+
+// result.value is fully typed: { name: string; language: "ts" | "js" }
+// (task states are excluded from the output type)
+console.log(result.value);
 ```
 
 Run it:
 
 ```sh
 bun cli.ts               # interactive prompts
-bun cli.ts my-app --language ts --install  # prefill from flags
+bun cli.ts my-app --language ts  # prefill from flags
 bun cli.ts -y            # accept all defaults non-interactively
 ```
 
@@ -106,6 +120,68 @@ Yes/no question.
 }
 ```
 
+### `task`
+
+Runs async logic (file writes, API calls, etc.) as a step inside the machine. Shows a spinner in interactive mode. Routes to different states based on success or failure — so the machine can retry instead of crashing.
+
+```ts
+{
+  type: "task";
+  message: string;               // spinner label
+  run: (values) => Promise<Result<null, E>>;
+  next: {
+    ok: string | null;           // state to go to on success
+    err: string | null;          // state to go to on failure (null = return Err)
+  };
+}
+```
+
+`values` contains all prompt answers collected so far. Use `ok(null)` and `err(cause)` from `clack-machine` as the return values:
+
+```ts
+import { ok, err } from "clack-machine";
+
+scaffold: {
+  type: "task",
+  message: "Scaffolding project",
+  run: async (values) => {
+    try {
+      await writeFiles(values.name);
+      return ok(null);
+    } catch (e) {
+      return err(e);
+    }
+  },
+  next: { ok: null, err: "name" },
+},
+```
+
+Task states are excluded from `MachineOutput` — they don't appear in the result value or `--help` / `--schema` output.
+
+## Result
+
+`createCLI` returns `Promise<Result<O, CLIError>>` instead of throwing. Check `result.ok` before using the value:
+
+```ts
+const result = await createCLI(machine, options);
+
+if (!result.ok) {
+  if (result.error.kind === "cancel") {
+    // user pressed Ctrl-C
+    process.exit(0);
+  }
+  // result.error.kind === "task"
+  // result.error.stateId — which task state failed
+  // result.error.cause   — the original error
+  console.error(result.error.cause);
+  process.exit(1);
+}
+
+// result.value — typed output, task states excluded
+```
+
+In **headless mode**, task failures always return `Err` (there is no interactive retry).
+
 ## Transitions
 
 The `next` field controls flow between states:
@@ -124,7 +200,7 @@ typescript: {
 
 ## Automatic CLI flags
 
-Every state becomes a CLI flag. `camelCase` state keys become `--kebab-case` flags:
+Every prompt state becomes a CLI flag. `camelCase` state keys become `--kebab-case` flags:
 
 ```sh
 my-cli --project-name foo --language ts --install
