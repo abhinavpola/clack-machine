@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { parse as parseYaml } from "yaml";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -8,7 +9,7 @@ export async function parseConfigArg(
   raw: string
 ): Promise<Record<string, unknown>> {
   if (raw.endsWith(".json") || raw.endsWith(".yaml") || raw.endsWith(".yml")) {
-    const text = await Bun.file(raw).text();
+    const text = await readFile(raw, "utf8");
     if (raw.endsWith(".json")) {
       const parsed: Record<string, unknown> = JSON.parse(text);
       return parsed;
